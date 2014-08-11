@@ -8,129 +8,125 @@ var qs = require('querystring');
 var root = __dirname;
 var items = [];
 
+var getData = function(useItem) {
+    var data = '';
+    this.req.setEncoding('utf8');
+    this.req.on('data', function (chunk) {
+        data += chunk;
+    });
+    this.req.on('end', function() { 
+        useItem(parseItem(data));
+    });
+};
+
+var parseItem = function(item) {
+    return qs.parse(item).data;
+};
+
+var addItem = function(item, callback) {
+    items[item] = item;
+    callback();
+};
+
+var sendItem = function(item) {
+    var msg = qs.stringify(item);
+    this.res.end(msg);
+};
+
+var sendFile = function(u) {
+    if (u) {
+        this.req.url = u;
+    }
+    var url = parse(this.req.url);
+    var path = join(root, url.pathname);
+
+    fs.stat(path, (function (err, stat) {
+        if (err) {
+            if (err === 'ENOENT') {
+                this.res.statusCode = 404;
+                this.res.end('File Not Found');
+            }
+            else {
+                this.res.statusCode = 500;
+                this.res.end('Internal Server Error');
+            }
+        }
+
+        else {
+
+            var stream = fs.createReadStream(path);
+
+            this.res.setHeader('Content-Length', stat.size);
+            stream.pipe(this.res);
+
+            stream.on('error', (function (err) {
+
+                this.res.statusCode = 500;
+
+                this.res.end('Internal Server Error');
+
+            }).bind(this));
+
+        }
+
+    }).bind(this));
+};
+
 var server = http.createServer(function (req, res) {
-
-    var sendFile = function(u) {
-	if (u) {
-		req.url = u;
-	}
-        var url = parse(req.url);
-	var path = join(root, url.pathname);
-
-	fs.stat(path, function (err, stat) {
-		if (err) {
-		    if (err == 'ENOENT') {
-			res.statusCode = 404;
-			res.end('File Not Found');
-		    }
-		    else {
-			res.statusCode = 500;
-			res.end('Internal Server Error');
-		    }
-		}
-		
-		 else {
-
-		var stream = fs.createReadStream(path);
-
-		res.setHeader('Content-Length', stat.size);
-		stream.pipe(res);
-
-		stream.on('error', function (err) {
-
-			res.statusCode = 500;
-
-			res.end('Internal Server Error');
-
-		});
-
-		}
-
-	});
-    };
+    this.req = req;
+    this.res = res;
     
-	var existingID = function(ifValid) {
-		var pathname = url.parse(req.url).pathname;
-	    console.log('PATHNAME --'  + pathname);
-	    
-		if (pathname) {
-		    res.statusCode = 400;
-		    res.end('Item id not valid');
-		}
-		else if (!items[pathname]) {
-		    res.statusCode = 404;
-		    res.end('Item not found');
-		}
-		else {
-	            ifValid(pathname);	
-		}
+    sendItem = sendItem.bind(this);
+    sendFile = sendFile.bind(this);
+    getData = getData.bind(this);
 
-	};
+    if (req.headers.verb) {
+        req.method = req.headers.verb;
+    }
 
-	var getRequest = function(useItem) {
-		var request = '';
-		req.setEncoding('utf8');
-		req.on('data', function (chunk) {
-		    request += chunk;
-		});
-		req.on('end', function() { 
-			useItem(request);
-		});
-	};
-	
-	var addItem = function(item, callback) {
-	    var obj = qs.parse(item);
-	    items[obj.item] = obj;
-	    callback();
-	};
-	
-	var sendItem = function(item) {
-	    var msg = qs.stringify(item);
-	    res.end(msg);
-	};
+    switch(req.method) {
 
-        switch(req.method) {
         case 'GET':
-		if(req.url == '/') {
-			sendFile('/index.html');
-		} else {
+            if(req.url === '/') {
+                sendFile('/index.html');
+            } else {
 
                 if(req.url === '/list') {
-                    console.log('lisyt!!!');
                     sendItem(items);
                 } else {
                     sendFile();
                 }
-		}
+            }
             break;
-            case 'POST':
-                getRequest(function (request) {
-			addItem(request, function() {
-				sendFile('/index.html');
-			});
+            
+        case 'POST':
+            getData(function (data) {
+                addItem(data, function() {
+                    res.end('true');
                 });
+            });
             break;
 
-	    case 'PUT':
-		    getRequest(function (request) {
-		        var keys = request.split(',');
-		        
-		        existingID(function(id) { 
-			        addItem(request, function() {
-				    res.end('true');
-				});
-		        });
-		    });
-	    break;
-	    case 'DELETE':
-		    existingID(function(id) { 
-			    delete items[id]; 
-			    sendFile('/index.html');
-		    });
-	    break;
-	}
+        case 'PUT':
+            getData(function (data) {
+                data = data.split(',');
+                delete items[data[0]];
+                addItem(data[1], function() {
+                    res.end('true');
+                });
+            });
+            break;
+
+        case 'DELETE':
+            getData(function (data) {
+                delete items[data]; 
+                res.end('true');
+            });
+            break;
+    }
+    console.log(items);
 });
 
 server.listen(9000, function(){
-   console.log('listening on 9000');
+    console.log('listening on 9000');
 });
